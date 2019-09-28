@@ -1,0 +1,17 @@
+[package]
+name = "NetSDDNN"
+version = "0.1.0"
+authors = ["skye347 <s347419313@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rtnetlink = { git="https://github.com/little-dude/netlink.git" }
+netlink-packet-route = { git="https://github.com/little-dude/netlink.git" }
+rustyline = "5.0.3"
+futures-preview = "0.3.0-alpha.18"
+tokio = "0.2.0-alpha"
+subprocess = "0.1"
+tokio-process = "0.3.0-alpha.2"
+structopt = { version = "0.3" }
