@@ -66,21 +66,59 @@ async fn main() -> Result<(),Box<dyn std::error::Error>> {
         rtnetlink_handle: handle
     };
     net.clean().await;
+    let tc = TrafficControl {
+        bandwidth: 300.0,
+        delay: 1
+    };
     let cloud = net.add_host("cloud").unwrap();
-    let edge = net.add_host("edge").unwrap();
-    let device = net.add_host("d1").unwrap();
+    let cn1 = net.add_host("cn1").unwrap();
+    let cn2 = net.add_host("cn2").unwrap();
+    let cn3 = net.add_host("cn3").unwrap();
+    let cn4 = net.add_host("cn4").unwrap();
+    let ed1 = net.add_host("ed1").unwrap();
+    let ed2 = net.add_host("ed2").unwrap();
+    let h1 = net.add_host("h1").unwrap();
+    let h2 = net.add_host("h2").unwrap();
 
-    let mut s1 = net.add_switch("s1").unwrap();
-    let mut s2 = net.add_switch("s2").unwrap();
-//    s1.set_controller("127.0.0.1:6653".parse().unwrap()).await;
-//    s2.set_controller("127.0.0.1:6653".parse().unwrap()).await;
-    net.connect_switch_host(&mut s1, &cloud, "1", Some((Ipv4Addr::from([10,0,0,1]),Ipv4Addr::from([255,255,255,0])))).await;
-    net.connect_switch_host(&mut s1, &edge, "2", Some((Ipv4Addr::from([10,0,0,2]),Ipv4Addr::from([255,255,255,0])))).await;
-    net.connect_switch_host(&mut s2, &edge, "3", Some((Ipv4Addr::from([10,0,1,1]),Ipv4Addr::from([255,255,255,0])))).await;
-    let link = net.connect_switch_host(&mut s2, &device, "4", Some((Ipv4Addr::from([10,0,1,2]),Ipv4Addr::from([255,255,255,0])))).await;
+    let mut s0 = net.add_switch("s0").unwrap();
+    let mut s1 = net.add_switch("fw1").unwrap();
+    let mut s2 = net.add_switch("fw2").unwrap();
+    let mut s3 = net.add_switch("fw3").unwrap();
+    let mut s4 = net.add_switch("fw4").unwrap();
+    let mut s5 = net.add_switch("fw5").unwrap();
+
+    s1.set_controller("172.17.0.2:6653".parse().unwrap()).await;
+    s2.set_controller("172.17.0.2:6653".parse().unwrap()).await;
+    s3.set_controller("172.17.0.2:6653".parse().unwrap()).await;
+    s4.set_controller("172.17.0.2:6653".parse().unwrap()).await;
+    s5.set_controller("172.17.0.2:6653".parse().unwrap()).await;
+
+    net.connect_switch_host(&mut s0, &cloud, "1", Some((Ipv4Addr::from([10,0,1,1]),Ipv4Addr::from([255,255,255,0])))).await;
+    net.connect_switch_host(&mut s0, &ed1, "2", Some((Ipv4Addr::from([10,0,1,2]),Ipv4Addr::from([255,255,255,0])))).await;
+    net.connect_switch_host(&mut s0, &ed2, "3", Some((Ipv4Addr::from([10,0,1,3]),Ipv4Addr::from([255,255,255,0])))).await;
+
+    net.connect_switch_host(&mut s1,&ed1,"4", Some((Ipv4Addr::from([10,0,0,9]),Ipv4Addr::from([255,255,255,0])))).await;
+    net.connect_switch_host(&mut s2,&ed2,"5", Some((Ipv4Addr::from([10,0,0,10]),Ipv4Addr::from([255,255,255,0])))).await;
+
+    net.connect_switch_host(&mut s3,&cn1,"6", Some((Ipv4Addr::from([10,0,0,5]),Ipv4Addr::from([255,255,255,0])))).await.add_tc(&tc);
+    net.connect_switch_host(&mut s4,&cn2,"7", Some((Ipv4Addr::from([10,0,0,6]),Ipv4Addr::from([255,255,255,0])))).await.add_tc(&tc);
+
+    net.connect_switch_host(&mut s3, &h1, "h1s1",Some((Ipv4Addr::from([10,0,0,1]),Ipv4Addr::from([255,255,255,0])))).await.add_tc(&tc);
+    net.connect_switch_host(&mut s4, &h2, "h2s2",Some((Ipv4Addr::from([10,0,0,2]),Ipv4Addr::from([255,255,255,0])))).await.add_tc(&tc);
+
+    net.connect_switches(&mut s1,&mut s2,"10").await.add_tc(&tc);
+    net.connect_switches(&mut s1,&mut s3,"11").await.add_tc(&tc);
+    net.connect_switches(&mut s2,&mut s4,"12").await.add_tc(&tc);
+    net.connect_switches(&mut s3,&mut s4,"13").await.add_tc(&tc);
+
+    net.connect_switches(&mut s1,&mut s5,"14").await.add_tc(&tc);
+    net.connect_switches(&mut s2,&mut s5,"15").await.add_tc(&tc);
+    net.connect_switches(&mut s3,&mut s5,"16").await.add_tc(&tc);
+    net.connect_switches(&mut s4,&mut s5,"17").await.add_tc(&tc);
+//    let link = net.connect_switch_host(&mut s2, &device, "4", Some((Ipv4Addr::from([10,0,1,2]),Ipv4Addr::from([255,255,255,0])))).await;
 //    link.two.add_tc(&TrafficControl {
-//        bandwidth: 10.0,
-//        delay: 0
+//        bandwidth: 200.0,
+//        delay: 10
 //    });
     let mut rl = Editor::<()>::new();
     if rl.load_history("history.txt").is_err() {
@@ -89,16 +127,24 @@ async fn main() -> Result<(),Box<dyn std::error::Error>> {
     loop {
         let readline = rl.readline(">> ");
         match readline {
-            Ok(ref line) if line.starts_with("xterm") => {
+            Ok(ref line) if line.starts_with("shell") => {
                 rl.add_history_entry(line.as_str());
                 let cmds:Vec<&str> = line.split(' ').collect();
                 let hosts = &cmds[1..];
                 for host in hosts {
                     let mut child = tokio_process::Command::new("ip");
-                    child.arg("netns")
+                    child
+                        .current_dir("/home/skye/SDDNN/Model")
+                        .arg("netns")
                         .arg("exec")
                         .arg(format!("rs-host-{}",host))
-                        .arg("konsole");
+                        .arg("dbus-launch")
+                        .arg("gnome-terminal")
+                        .args(&["-t",host])
+                        .arg("-e")
+                        .arg("env TERM=ansi LD_LIBRARY_PATH=/home/skye/libtorch/lib:$LD_LIBRARY_PATH bash")
+                        .arg("--wait")
+                        .arg("-q");
                     let mut child = child.spawn().unwrap();
                     tokio::spawn(async {
                         let _ = child.await;

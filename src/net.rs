@@ -40,6 +40,15 @@ impl Net {
         link
     }
 
+    pub async fn connect_switches(&mut self, s1: &mut OVSSwitch, s2:&mut OVSSwitch, name:&str) -> VethPair {
+        let mut link = self.add_veth_link(name, None, None).await.unwrap();
+        s1.add_port(&link.one.name);
+        s2.add_port(&link.two.name);
+        link.one.up();
+        link.two.up();
+        link
+    }
+
     pub async fn add_veth_link(&mut self, name: &str, one: Option<(Ipv4Addr,Ipv4Addr)>, two: Option<(Ipv4Addr,Ipv4Addr)>) -> Option<VethPair> {
         let result = self.rtnetlink_handle
             .link()
@@ -115,6 +124,13 @@ pub struct VethPair {
     pub two: Intf,
 }
 
+impl VethPair {
+    pub fn add_tc(&self,tc:&TrafficControl) {
+        self.one.add_tc(tc);
+        self.two.add_tc(tc);
+    }
+}
+
 pub struct Intf {
     pub name: String,
     pub intf_type: IntfType,
@@ -173,16 +189,26 @@ impl Intf {
     }
 
     /*
+    tc qdisc del dev fw3-eth4 root
     tc qdisc add dev s1-eth3 root handle 5:0 htb default 1
     tc class add dev s1-eth3 parent 5:0 classid 5:1 htb rate 50.000000Mbit burst 15k
     tc qdisc add dev s1-eth3  parent 5:1  handle 10: netem delay 10
     */
     pub fn add_tc(&self, tc:&TrafficControl) {
         if let Some(netns) = self.netns.as_ref() {
-            netns.exec_shell(format!("tc qdisc add dev {} root handle 5:0 htb default 1", self.name));
-            netns.exec_shell(format!("tc class add dev {} parent 5:0 classid 5:1 htb rate {}Mbit burst 15k", self.name, tc.bandwidth));
+            handle_output(netns.exec_shell(format!("tc qdisc del dev {} root", self.name)),"del tc qdisc");
+            handle_output(netns.exec_shell(format!("tc qdisc add dev {} root handle 5:0 htb default 1", self.name)),"add tc qdisc");
+            handle_output(netns.exec_shell(format!("tc class add dev {} parent 5:0 classid 5:1 htb rate {}Kbit burst 1k", self.name, tc.bandwidth)),"add tc htb");
             if tc.delay!=0 {
-                netns.exec_shell(format!("tc qdisc add dev {} parent 5:1  handle 10: netem delay {}", self.name, tc.delay));
+                handle_output(netns.exec_shell(format!("tc qdisc add dev {} parent 5:1  handle 10: netem delay {}ms", self.name, tc.delay)),"add tc delay");
+            }
+        }
+        else {
+            handle_output(Exec::shell(format!("tc qdisc del dev {} root", self.name)).capture().ok().unwrap(),"del tc qdisc");
+            handle_output(Exec::shell(format!("tc qdisc add dev {} root handle 5:0 htb default 1", self.name)).capture().ok().unwrap(),"add tc qdisc");
+            handle_output(Exec::shell(format!("tc class add dev {} parent 5:0 classid 5:1 htb rate {}Kbit burst 1k", self.name, tc.bandwidth)).capture().ok().unwrap(),"add tc htb");
+            if tc.delay!=0 {
+                handle_output(Exec::shell(format!("tc qdisc add dev {} parent 5:1  handle 10: netem delay {}ms", self.name, tc.delay)).capture().ok().unwrap(),"add tc delay");
             }
         }
     }
